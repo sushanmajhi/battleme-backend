@@ -8,7 +8,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-change-this-in-production")
 DEBUG = os.environ.get("DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", ".onrender.com", "*"]
+ALLOWED_HOSTS = [
+    "127.0.0.1",
+    "localhost",
+    ".onrender.com",
+    "battleme-backend.onrender.com",
+]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -58,11 +63,9 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-
 DATABASES = {
     "default": dj_database_url.config(
-        default=DATABASE_URL,
+        default=os.environ.get("DATABASE_URL"),
         conn_max_age=600,
         ssl_require=True,
     )
@@ -85,15 +88,15 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
-    "https://your-netlify-site.netlify.app",
+    "https://profound-entremet-9e5a34.netlify.app",
 ]
-
-CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
-    "https://your-netlify-site.netlify.app",
+    "https://profound-entremet-9e5a34.netlify.app",
 ]
+
+CORS_ALLOW_CREDENTIALS = True
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (

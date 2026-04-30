@@ -58,23 +58,15 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
 DATABASES = {
     "default": dj_database_url.config(
-        default=os.environ.get("DATABASE_URL", "")
+        default=DATABASE_URL,
+        conn_max_age=600,
+        ssl_require=True,
     )
 }
-
-if not os.environ.get("DATABASE_URL"):
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": "battleme_db",
-            "USER": "postgres",
-            "PASSWORD": "sushan123",
-            "HOST": "localhost",
-            "PORT": "5432",
-        }
-    }
 
 AUTH_PASSWORD_VALIDATORS = []
 

@@ -42,11 +42,19 @@ class RegisterView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
 
         profile = serializer.save()
-        send_verification_email(profile)
+
+        email_sent = True
+
+        try:
+            send_verification_email(profile)
+        except Exception as e:
+            print("EMAIL ERROR:", e)
+            email_sent = False
 
         return Response(
             {
-                "message": "Account created successfully. Verification code sent to your email.",
+                "message": "Account created successfully.",
+                "email_sent": email_sent,
                 "email": profile.user.email,
                 "user": ProfileSerializer(profile).data,
             },
@@ -109,9 +117,20 @@ class ResendVerificationCodeView(APIView):
         if profile.is_email_verified:
             return Response({"message": "Email is already verified."})
 
-        send_verification_email(profile)
+        email_sent = True
 
-        return Response({"message": "New verification code sent to your email."})
+        try:
+            send_verification_email(profile)
+        except Exception as e:
+            print("EMAIL ERROR:", e)
+            email_sent = False
+
+        return Response(
+            {
+                "message": "Verification code resend attempted.",
+                "email_sent": email_sent,
+            }
+        )
 
 
 class ProfileListView(generics.ListAPIView):

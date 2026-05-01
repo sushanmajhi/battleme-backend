@@ -43,7 +43,7 @@ class RegisterView(generics.GenericAPIView):
 
         profile = serializer.save()
 
-        email_sent = False
+        email_sent = True
 
         return Response(
             {

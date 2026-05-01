@@ -89,11 +89,12 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # CORS (keep open for now)
 CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_CREDENTIALS = False
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "https://profound-entremet-9e5a34.netlify.app",
+    "https://dulcet-madeleine-cb1365.netlify.app",
 ]
 
 # DRF

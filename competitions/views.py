@@ -3,14 +3,19 @@ from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import WorldChatMessage
-from .serializers import WorldChatSerializer
-from .models import MatchMessage
-from .serializers import MatchMessageSerializer
-from .models import CompetitionMessage
-from .serializers import CompetitionMessageSerializer
 
-from .models import Competition, CompetitionParticipant, Match, Standing, MatchDispute, Challenge
+from .models import (
+    Competition,
+    CompetitionParticipant,
+    Match,
+    Standing,
+    MatchDispute,
+    Challenge,
+    WorldChatMessage,
+    MatchMessage,
+    CompetitionMessage,
+)
+
 from .serializers import (
     CompetitionSerializer,
     CompetitionCreateSerializer,
@@ -25,8 +30,12 @@ from .serializers import (
     ChallengeSerializer,
     ChallengeCreateSerializer,
     ChallengeResultSubmitSerializer,
-    CompetitionDetailSerializer
+    CompetitionDetailSerializer,
+    WorldChatSerializer,
+    MatchMessageSerializer,
+    CompetitionMessageSerializer,
 )
+
 from .permissions import IsHostUser
 
 
@@ -277,6 +286,7 @@ def maybe_create_next_round_match(competition, completed_match):
         if only_match.status == "completed" and only_match.winner:
             competition.status = "completed"
             competition.save()
+
             winner = only_match.winner
             winner.xp += TOURNAMENT_WIN_BONUS_XP
             update_profile_rank_fields(winner)
@@ -346,10 +356,11 @@ class CompetitionParticipantListCreateView(generics.ListCreateAPIView):
             competition=competition,
             player=profile,
         ).exists():
-            return Response({"detail": "You already joined this competition."}, status=400)
+            return Response({"detail": "You already requested or joined this competition."}, status=400)
 
         current_count = CompetitionParticipant.objects.filter(
-            competition=competition
+            competition=competition,
+            status__in=["pending", "approved"],
         ).count()
 
         if current_count >= competition.max_players:
@@ -358,15 +369,78 @@ class CompetitionParticipantListCreateView(generics.ListCreateAPIView):
         participant = CompetitionParticipant.objects.create(
             competition=competition,
             player=profile,
-            status="approved",
+            status="pending",
         )
 
-        profile.xp += JOIN_COMPETITION_XP
-        update_profile_rank_fields(profile)
-        profile.save()
-
         serializer = self.get_serializer(participant)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(
+            {
+                "message": "Join request submitted. Waiting for host approval.",
+                "participant": serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ParticipantApprovalView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsHostUser]
+
+    def post(self, request, pk):
+        try:
+            participant = CompetitionParticipant.objects.select_related(
+                "competition",
+                "competition__host",
+                "player",
+            ).get(pk=pk)
+        except CompetitionParticipant.DoesNotExist:
+            return Response({"detail": "Participant not found."}, status=404)
+
+        profile = request.user.profile
+
+        if participant.competition.host != profile and profile.role != "admin":
+            return Response({"detail": "You cannot approve or reject this participant."}, status=403)
+
+        action = request.data.get("action")
+
+        if action not in ["approve", "reject"]:
+            return Response({"detail": "Invalid action. Use approve or reject."}, status=400)
+
+        previous_status = participant.status
+
+        if action == "approve":
+            approved_count = CompetitionParticipant.objects.filter(
+                competition=participant.competition,
+                status="approved",
+            ).count()
+
+            if previous_status != "approved" and approved_count >= participant.competition.max_players:
+                return Response({"detail": "Competition is already full."}, status=400)
+
+            participant.status = "approved"
+            participant.save()
+
+            if previous_status != "approved":
+                player = participant.player
+                player.xp += JOIN_COMPETITION_XP
+                update_profile_rank_fields(player)
+                player.save()
+
+            return Response(
+                {
+                    "message": "Participant approved successfully.",
+                    "participant": CompetitionParticipantSerializer(participant).data,
+                }
+            )
+
+        participant.status = "rejected"
+        participant.save()
+
+        return Response(
+            {
+                "message": "Participant rejected successfully.",
+                "participant": CompetitionParticipantSerializer(participant).data,
+            }
+        )
 
 
 class MatchListCreateView(generics.ListCreateAPIView):
@@ -414,6 +488,7 @@ class MatchResultSubmitView(generics.UpdateAPIView):
         profile = request.user.profile
 
         allowed_player_ids = [match.player1.id, match.player2.id]
+
         if profile.id not in allowed_player_ids and profile.role not in ["host", "admin"]:
             return Response({"detail": "You cannot submit this result."}, status=403)
 
@@ -426,10 +501,7 @@ class MatchResultSubmitView(generics.UpdateAPIView):
         player1_score = serializer.validated_data.get("player1_score", match.player1_score)
         player2_score = serializer.validated_data.get("player2_score", match.player2_score)
 
-        if (
-            match.competition.format == "knockout"
-            and player1_score == player2_score
-        ):
+        if match.competition.format == "knockout" and player1_score == player2_score:
             return Response({"detail": "Knockout matches cannot end in a draw."}, status=400)
 
         match.player1_score = player1_score
@@ -476,9 +548,12 @@ class MatchApprovalView(APIView):
 
         if action == "reject":
             match.status = "rejected"
+
             if notes:
                 match.notes = append_note(match.notes, f"Host rejection note: {notes}")
+
             match.save()
+
             return Response(
                 {
                     "message": "Match result rejected.",
@@ -493,6 +568,7 @@ class MatchApprovalView(APIView):
             return Response({"detail": "Knockout matches cannot end in a draw."}, status=400)
 
         winner = None
+
         if player1_score > player2_score:
             winner = match.player1
         elif player2_score > player1_score:
@@ -502,8 +578,10 @@ class MatchApprovalView(APIView):
         match.status = "completed"
         match.approved_by = request.user.profile
         match.approved_at = timezone.now()
+
         if notes:
             match.notes = append_note(match.notes, f"Host approval note: {notes}")
+
         match.save()
 
         award_match_xp_and_stats(match)
@@ -624,8 +702,10 @@ class MatchDisputeResolveView(APIView):
 
         if action == "dismissed":
             match.status = "pending_approval"
+
             if resolution_notes:
                 match.notes = append_note(match.notes, f"Dispute dismissed: {resolution_notes}")
+
             match.save()
 
             return Response(
@@ -643,6 +723,7 @@ class MatchDisputeResolveView(APIView):
             return Response({"detail": "Knockout matches cannot end in a draw."}, status=400)
 
         winner = None
+
         if player1_score > player2_score:
             winner = match.player1
         elif player2_score > player1_score:
@@ -682,21 +763,31 @@ class StandingListView(generics.ListAPIView):
 
     def get_queryset(self):
         competition_id = self.kwargs["competition_id"]
-        return Standing.objects.select_related("player", "player__user").filter(
-            competition_id=competition_id
-        )
+
+        return Standing.objects.select_related(
+            "player",
+            "player__user",
+        ).filter(competition_id=competition_id)
 
 
 class MyCompetitionsView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsHostUser]
 
     def get(self, request):
-        competitions = Competition.objects.select_related("host", "host__user").filter(
-            host=request.user.profile
+        competitions = Competition.objects.select_related(
+            "host",
+            "host__user",
+        ).filter(host=request.user.profile)
+
+        serializer = CompetitionSerializer(
+            competitions,
+            many=True,
+            context={"request": request},
         )
-        serializer = CompetitionSerializer(competitions, many=True)
+
         return Response(serializer.data)
-    
+
+
 class MyJoinedCompetitionsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -737,11 +828,15 @@ class GenerateKnockoutMatchesView(APIView):
             )
 
         existing_matches = Match.objects.filter(competition=competition).exists()
+
         if existing_matches:
             return Response({"detail": "Matches have already been generated for this competition."}, status=400)
 
         approved_participants = list(
-            CompetitionParticipant.objects.select_related("player", "player__user")
+            CompetitionParticipant.objects.select_related(
+                "player",
+                "player__user",
+            )
             .filter(competition=competition, status="approved")
             .order_by("joined_at")
         )
@@ -750,9 +845,9 @@ class GenerateKnockoutMatchesView(APIView):
             return Response({"detail": "At least 2 approved participants are required."}, status=400)
 
         players = [entry.player for entry in approved_participants]
-
         created_matches = []
         index = 0
+
         while index < len(players) - 1:
             match = Match.objects.create(
                 competition=competition,
@@ -766,6 +861,7 @@ class GenerateKnockoutMatchesView(APIView):
 
         if len(players) % 2 != 0:
             last_player = players[-1]
+
             match = Match.objects.create(
                 competition=competition,
                 round_number=1,
@@ -777,6 +873,7 @@ class GenerateKnockoutMatchesView(APIView):
                 status="completed",
                 notes="Automatic bye",
             )
+
             award_match_xp_and_stats(match)
             created_matches.append(match)
             maybe_create_next_round_match(competition, match)
@@ -785,6 +882,7 @@ class GenerateKnockoutMatchesView(APIView):
         competition.save()
 
         serializer = MatchSerializer(created_matches, many=True)
+
         return Response(
             {
                 "message": "Round 1 matches generated successfully.",
@@ -815,6 +913,7 @@ class ChallengeListCreateView(generics.GenericAPIView):
             many=True,
             context=self.get_serializer_context(),
         )
+
         return Response(serializer.data)
 
     def post(self, request, *args, **kwargs):
@@ -883,7 +982,10 @@ class ChallengeCancelView(APIView):
 
     def post(self, request, pk):
         try:
-            challenge = Challenge.objects.select_related("challenger", "opponent").get(pk=pk)
+            challenge = Challenge.objects.select_related(
+                "challenger",
+                "opponent",
+            ).get(pk=pk)
         except Challenge.DoesNotExist:
             return Response({"detail": "Challenge not found."}, status=404)
 
@@ -955,6 +1057,7 @@ class ChallengeResultSubmitView(APIView):
             }
         )
 
+
 class WorldChatView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -977,6 +1080,7 @@ class WorldChatView(APIView):
             many=True,
             context={"request": request},
         )
+
         return Response(serializer.data)
 
     def post(self, request):
@@ -1012,7 +1116,9 @@ class WorldChatView(APIView):
             message,
             context={"request": request},
         )
+
         return Response(serializer.data, status=201)
+
 
 class MatchMessageListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -1045,6 +1151,7 @@ class MatchMessageListCreateView(APIView):
         ).filter(match=match).order_by("created_at")
 
         serializer = MatchMessageSerializer(messages, many=True)
+
         return Response(serializer.data)
 
     def post(self, request, pk):
@@ -1081,7 +1188,10 @@ class MatchMessageListCreateView(APIView):
         )
 
         serializer = MatchMessageSerializer(message)
+
         return Response(serializer.data, status=201)
+
+
 class CompetitionMessageListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -1104,10 +1214,12 @@ class CompetitionMessageListCreateView(APIView):
             return Response({"detail": "You cannot view this chat."}, status=403)
 
         messages = CompetitionMessage.objects.select_related(
-            "sender", "sender__user"
+            "sender",
+            "sender__user",
         ).filter(competition=competition)
 
         serializer = CompetitionMessageSerializer(messages, many=True)
+
         return Response(serializer.data)
 
     def post(self, request, competition_id):
@@ -1140,4 +1252,5 @@ class CompetitionMessageListCreateView(APIView):
         )
 
         serializer = CompetitionMessageSerializer(msg)
+
         return Response(serializer.data, status=201)

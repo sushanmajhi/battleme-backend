@@ -1,5 +1,8 @@
 from django.contrib.auth.models import User
 from django.db import models
+from django.utils import timezone
+from datetime import timedelta
+import random
 
 
 def get_rank_tier_from_xp(xp):
@@ -30,10 +33,16 @@ class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
     username = models.CharField(max_length=50, unique=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="player")
+
     avatar = models.URLField(blank=True, null=True)
     bio = models.TextField(blank=True)
     favorite_team = models.CharField(max_length=100, blank=True)
     country = models.CharField(max_length=100, blank=True)
+
+    # email verification
+    is_email_verified = models.BooleanField(default=False)
+    email_verification_code = models.CharField(max_length=6, blank=True, null=True)
+    email_code_created_at = models.DateTimeField(blank=True, null=True)
 
     matches_played = models.PositiveIntegerField(default=0)
     wins = models.PositiveIntegerField(default=0)
@@ -51,6 +60,23 @@ class Profile(models.Model):
     def refresh_rank_data(self):
         self.level = get_level_from_xp(self.xp)
         self.rank_tier = get_rank_tier_from_xp(self.xp)
+
+    def generate_email_code(self):
+        code = str(random.randint(100000, 999999))
+        self.email_verification_code = code
+        self.email_code_created_at = timezone.now()
+        self.save()
+        return code
+
+    def is_email_code_valid(self, code):
+        if not self.email_verification_code or not self.email_code_created_at:
+            return False
+
+        if self.email_verification_code != str(code):
+            return False
+
+        expiry_time = self.email_code_created_at + timedelta(minutes=10)
+        return timezone.now() <= expiry_time
 
     def save(self, *args, **kwargs):
         self.refresh_rank_data()

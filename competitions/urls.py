@@ -20,6 +20,7 @@ from .views import (
     WorldChatView,
     MatchMessageListCreateView,
     CompetitionMessageListCreateView,
+    ParticipantApprovalView,
 )
 
 urlpatterns = [
@@ -73,6 +74,7 @@ urlpatterns = [
     path("<int:competition_id>/generate-matches/", GenerateKnockoutMatchesView.as_view(), name="generate-matches"),
     path("<int:competition_id>/disputes/", MatchDisputeListView.as_view(), name="competition-disputes"),
     path("<int:competition_id>/standings/", StandingListView.as_view(), name="competition-standings"),
+    path("participants/<int:pk>/approve/", ParticipantApprovalView.as_view(), name="participant-approval"),
 
     # ⚠️ KEEP THIS LAST
     path("<int:pk>/", CompetitionDetailView.as_view(), name="competition-detail"),

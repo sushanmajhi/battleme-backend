@@ -43,13 +43,7 @@ class RegisterView(generics.GenericAPIView):
 
         profile = serializer.save()
 
-        email_sent = True
-
-        try:
-            send_verification_email(profile)
-        except Exception as e:
-            print("EMAIL ERROR:", e)
-            email_sent = False
+        email_sent = False
 
         return Response(
             {

@@ -1,3 +1,7 @@
+from django.contrib.auth.models import User
+from django.core.mail import send_mail
+from django.conf import settings
+
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -8,7 +12,21 @@ from .serializers import (
     ProfileSerializer,
     RegisterSerializer,
     CustomTokenObtainPairSerializer,
+    VerifyEmailSerializer,
+    ResendVerificationCodeSerializer,
 )
+
+
+def send_verification_email(profile):
+    code = profile.generate_email_code()
+
+    send_mail(
+        subject="Your BattleMe verification code",
+        message=f"Your BattleMe verification code is: {code}. This code expires in 10 minutes.",
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[profile.user.email],
+        fail_silently=False,
+    )
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
@@ -24,14 +42,76 @@ class RegisterView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
 
         profile = serializer.save()
+        send_verification_email(profile)
 
         return Response(
             {
-                "message": "Account created successfully.",
+                "message": "Account created successfully. Verification code sent to your email.",
+                "email": profile.user.email,
                 "user": ProfileSerializer(profile).data,
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class VerifyEmailView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = VerifyEmailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data["email"]
+        code = serializer.validated_data["code"]
+
+        try:
+            user = User.objects.select_related("profile").get(email=email)
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=404)
+
+        profile = user.profile
+
+        if profile.is_email_verified:
+            return Response({"message": "Email is already verified."})
+
+        if not profile.is_email_code_valid(code):
+            return Response({"detail": "Invalid or expired verification code."}, status=400)
+
+        profile.is_email_verified = True
+        profile.email_verification_code = None
+        profile.email_code_created_at = None
+        profile.save()
+
+        return Response(
+            {
+                "message": "Email verified successfully. You can now log in.",
+                "user": ProfileSerializer(profile).data,
+            }
+        )
+
+
+class ResendVerificationCodeView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = ResendVerificationCodeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data["email"]
+
+        try:
+            user = User.objects.select_related("profile").get(email=email)
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=404)
+
+        profile = user.profile
+
+        if profile.is_email_verified:
+            return Response({"message": "Email is already verified."})
+
+        send_verification_email(profile)
+
+        return Response({"message": "New verification code sent to your email."})
 
 
 class ProfileListView(generics.ListAPIView):

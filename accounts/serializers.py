@@ -25,6 +25,7 @@ class ProfileSerializer(serializers.ModelSerializer):
             "bio",
             "favorite_team",
             "country",
+            "is_email_verified",
             "matches_played",
             "wins",
             "losses",
@@ -47,30 +48,56 @@ class RegisterSerializer(serializers.Serializer):
     role = serializers.ChoiceField(choices=["player", "host"], default="player")
 
     def validate_email(self, value):
+        value = value.lower().strip()
+
         if User.objects.filter(email=value).exists():
             raise serializers.ValidationError("Email already exists.")
+
         return value
 
     def validate_username(self, value):
+        value = value.strip()
+
         if Profile.objects.filter(username=value).exists():
             raise serializers.ValidationError("Username already exists.")
+
         return value
 
     def create(self, validated_data):
+        email = validated_data["email"].lower().strip()
+
         user = User.objects.create_user(
-            username=validated_data["email"],
-            email=validated_data["email"],
+            username=email,
+            email=email,
             password=validated_data["password"],
             first_name=validated_data.get("first_name", ""),
             last_name=validated_data.get("last_name", ""),
+            is_active=True,
         )
 
         profile = Profile.objects.create(
             user=user,
-            username=validated_data["username"],
+            username=validated_data["username"].strip(),
             role=validated_data.get("role", "player"),
+            is_email_verified=False,
         )
+
         return profile
+
+
+class VerifyEmailSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(max_length=6, min_length=6)
+
+    def validate_email(self, value):
+        return value.lower().strip()
+
+
+class ResendVerificationCodeSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        return value.lower().strip()
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -91,6 +118,9 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         if not user.is_active:
             raise serializers.ValidationError("User account is disabled.")
 
+        if not user.profile.is_email_verified:
+            raise serializers.ValidationError("Please verify your email before logging in.")
+
         refresh = self.get_token(user)
 
         data = {
@@ -104,9 +134,11 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 "profile_id": user.profile.id,
                 "username": user.profile.username,
                 "role": user.profile.role,
+                "is_email_verified": user.profile.is_email_verified,
                 "xp": user.profile.xp,
                 "level": user.profile.level,
                 "rank_tier": user.profile.rank_tier,
             },
         }
+
         return data

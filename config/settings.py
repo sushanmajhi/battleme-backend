@@ -95,6 +95,7 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "https://profound-entremet-9e5a34.netlify.app",
     "https://dulcet-madeleine-cb1365.netlify.app",
+    "https://quiet-sunshine-aa5004.netlify.app",
 ]
 
 # DRF

@@ -23,6 +23,10 @@ from .views import (
     ParticipantApprovalView,
     HostAddParticipantView,
     ParticipantRemoveView,
+    NotificationListView,
+    NotificationMarkReadView,
+    NotificationMarkAllReadView,
+
 )
 
 urlpatterns = [
@@ -54,6 +58,10 @@ urlpatterns = [
     path("<int:competition_id>/host-add-player/", HostAddParticipantView.as_view(), name="host-add-player"),
     path("participants/<int:pk>/approve/", ParticipantApprovalView.as_view(), name="participant-approval"),
     path("participants/<int:pk>/remove/", ParticipantRemoveView.as_view(), name="remove-participant"),
+
+    path("notifications/", NotificationListView.as_view(), name="notifications"),
+    path("notifications/<int:pk>/read/", NotificationMarkReadView.as_view(), name="notification-read"),
+    path("notifications/read-all/", NotificationMarkAllReadView.as_view(), name="notifications-read-all"),
 
     # keep last
     path("<int:pk>/", CompetitionDetailView.as_view(), name="competition-detail"),

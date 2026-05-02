@@ -1,7 +1,5 @@
 from rest_framework import serializers
 from accounts.serializers import ProfileSerializer
-from .models import CompetitionMessage
-from .models import MatchMessage
 from .models import (
     Competition,
     CompetitionParticipant,
@@ -9,7 +7,10 @@ from .models import (
     Standing,
     MatchDispute,
     Challenge,
-    WorldChatMessage
+    WorldChatMessage,
+    MatchMessage,
+    CompetitionMessage,
+    Notification,
 )
 
 
@@ -19,53 +20,21 @@ class CompetitionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Competition
-        fields = [
-            "id",
-            "title",
-            "game",
-            "format",
-            "rules",
-            "max_players",
-            "start_date",
-            "registration_deadline",
-            "status",
-            "region",
-            "tournament_code",
-            "created_at",
-            "participant_count",
-            "is_joined",
-        ]
+        fields = "__all__"
 
     def get_participant_count(self, obj):
-        return obj.participants.filter(status="approved").count()
+        return obj.participants.count()
 
     def get_is_joined(self, obj):
         request = self.context.get("request")
-
-        if not request or not request.user.is_authenticated:
-            return False
-
-        return obj.participants.filter(
-            player=request.user.profile,
-            status="approved",
-        ).exists()
+        profile = getattr(request.user, "profile", None) if request else None
+        return bool(profile and obj.participants.filter(player=profile).exists())
 
 
 class CompetitionCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Competition
-        fields = [
-            "id",
-            "title",
-            "game",
-            "format",
-            "rules",
-            "max_players",
-            "start_date",
-            "registration_deadline",
-            "status",
-            "region",
-        ]
+        fields = "__all__"
 
 
 class CompetitionParticipantSerializer(serializers.ModelSerializer):
@@ -73,13 +42,7 @@ class CompetitionParticipantSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CompetitionParticipant
-        fields = [
-            "id",
-            "competition",
-            "player",
-            "status",
-            "joined_at",
-        ]
+        fields = "__all__"
 
 
 class MatchSerializer(serializers.ModelSerializer):
@@ -92,24 +55,7 @@ class MatchSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Match
-        fields = [
-            "id",
-            "competition",
-            "round_number",
-            "player1",
-            "player2",
-            "player1_score",
-            "player2_score",
-            "winner",
-            "scheduled_at",
-            "status",
-            "proof_image",
-            "notes",
-            "submitted_by",
-            "approved_by",
-            "approved_at",
-            "open_dispute_count",
-        ]
+        fields = "__all__"
 
     def get_open_dispute_count(self, obj):
         return obj.disputes.filter(status="open").count()
@@ -118,12 +64,7 @@ class MatchSerializer(serializers.ModelSerializer):
 class MatchResultSubmitSerializer(serializers.ModelSerializer):
     class Meta:
         model = Match
-        fields = [
-            "player1_score",
-            "player2_score",
-            "proof_image",
-            "notes",
-        ]
+        fields = ["player1_score", "player2_score", "proof_image", "notes"]
 
 
 class MatchApprovalSerializer(serializers.Serializer):
@@ -143,17 +84,7 @@ class MatchDisputeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MatchDispute
-        fields = [
-            "id",
-            "match",
-            "raised_by",
-            "reason",
-            "status",
-            "resolution_notes",
-            "resolved_by",
-            "created_at",
-            "resolved_at",
-        ]
+        fields = "__all__"
 
 
 class DisputeResolveSerializer(serializers.Serializer):
@@ -163,14 +94,11 @@ class DisputeResolveSerializer(serializers.Serializer):
     player2_score = serializers.IntegerField(required=False, min_value=0)
 
     def validate(self, attrs):
-        action = attrs.get("action")
-
-        if action == "resolved":
+        if attrs.get("action") == "resolved":
             if "player1_score" not in attrs or "player2_score" not in attrs:
                 raise serializers.ValidationError(
                     "player1_score and player2_score are required when resolving a dispute."
                 )
-
         return attrs
 
 
@@ -179,19 +107,7 @@ class StandingSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Standing
-        fields = [
-            "id",
-            "competition",
-            "player",
-            "played",
-            "wins",
-            "draws",
-            "losses",
-            "goals_for",
-            "goals_against",
-            "goal_difference",
-            "points",
-        ]
+        fields = "__all__"
 
 
 class ChallengeSerializer(serializers.ModelSerializer):
@@ -205,31 +121,12 @@ class ChallengeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Challenge
-        fields = [
-            "id",
-            "challenger",
-            "opponent",
-            "game",
-            "message",
-            "scheduled_at",
-            "status",
-            "challenger_score",
-            "opponent_score",
-            "winner",
-            "is_mine",
-            "can_accept",
-            "can_cancel",
-            "can_submit_result",
-            "created_at",
-            "updated_at",
-        ]
+        fields = "__all__"
 
     def get_profile(self):
         request = self.context.get("request")
-
         if request and request.user and request.user.is_authenticated:
             return getattr(request.user, "profile", None)
-
         return None
 
     def get_is_mine(self, obj):
@@ -238,30 +135,20 @@ class ChallengeSerializer(serializers.ModelSerializer):
 
     def get_can_accept(self, obj):
         profile = self.get_profile()
-
-        if not profile:
-            return False
-
-        return obj.status == "open" and obj.challenger_id != profile.id
+        return bool(profile and obj.status == "open" and obj.challenger_id != profile.id)
 
     def get_can_cancel(self, obj):
         profile = self.get_profile()
-
-        if not profile:
-            return False
-
-        return obj.status == "open" and obj.challenger_id == profile.id
+        return bool(profile and obj.status == "open" and obj.challenger_id == profile.id)
 
     def get_can_submit_result(self, obj):
         profile = self.get_profile()
-
-        if not profile or not obj.opponent_id:
-            return False
-
-        return obj.status == "accepted" and profile.id in [
-            obj.challenger_id,
-            obj.opponent_id,
-        ]
+        return bool(
+            profile
+            and obj.opponent_id
+            and obj.status == "accepted"
+            and profile.id in [obj.challenger_id, obj.opponent_id]
+        )
 
 
 class ChallengeCreateSerializer(serializers.Serializer):
@@ -277,52 +164,27 @@ class ChallengeResultSubmitSerializer(serializers.Serializer):
     def validate(self, attrs):
         if attrs["challenger_score"] == attrs["opponent_score"]:
             raise serializers.ValidationError("Open challenges cannot end in a draw.")
-
         return attrs
 
 
 class CompetitionDetailSerializer(serializers.ModelSerializer):
     host = ProfileSerializer(read_only=True)
-    matches = MatchSerializer(many=True, read_only=True)
     participants = CompetitionParticipantSerializer(many=True, read_only=True)
+    matches = MatchSerializer(many=True, read_only=True)
     participant_count = serializers.SerializerMethodField()
     is_joined = serializers.SerializerMethodField()
 
     class Meta:
         model = Competition
-        fields = [
-            "id",
-            "title",
-            "game",
-            "host",
-            "format",
-            "rules",
-            "max_players",
-            "start_date",
-            "registration_deadline",
-            "status",
-            "region",
-            "tournament_code",
-            "participants",
-            "matches",
-            "participant_count",
-            "is_joined",
-            "created_at",
-        ]
+        fields = "__all__"
 
     def get_participant_count(self, obj):
-        return obj.participants.filter(status="approved").count()
+        return obj.participants.count()
 
     def get_is_joined(self, obj):
         request = self.context.get("request")
-
-        if not request or not request.user.is_authenticated:
-            return False
-
-        return obj.participants.filter(
-            player=request.user.profile,
-            status="approved",
-        ).exists()
+        profile = getattr(request.user, "profile", None) if request else None
+        return bool(profile and obj.participants.filter(player=profile).exists())
 
 
 class WorldChatSerializer(serializers.ModelSerializer):
@@ -332,17 +194,7 @@ class WorldChatSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = WorldChatMessage
-        fields = [
-            "id",
-            "user",
-            "content",
-            "message_type",
-            "competition",
-            "competition_detail",
-            "challenge",
-            "challenge_detail",
-            "created_at",
-        ]
+        fields = "__all__"
 
 
 class MatchMessageSerializer(serializers.ModelSerializer):
@@ -350,14 +202,7 @@ class MatchMessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MatchMessage
-        fields = [
-            "id",
-            "match",
-            "sender",
-            "sender_username",
-            "message",
-            "created_at",
-        ]
+        fields = "__all__"
         read_only_fields = ["match", "sender", "created_at"]
 
 
@@ -366,12 +211,11 @@ class CompetitionMessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CompetitionMessage
-        fields = [
-            "id",
-            "competition",
-            "sender",
-            "sender_username",
-            "message",
-            "created_at",
-        ]
+        fields = "__all__"
         read_only_fields = ["competition", "sender", "created_at"]
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = "__all__"

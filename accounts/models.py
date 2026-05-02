@@ -30,7 +30,12 @@ class Profile(models.Model):
         ("admin", "Admin"),
     ]
 
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="profile"
+    )
+
     username = models.CharField(max_length=50, unique=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="player")
 
@@ -44,6 +49,10 @@ class Profile(models.Model):
     email_verification_code = models.CharField(max_length=6, blank=True, null=True)
     email_code_created_at = models.DateTimeField(blank=True, null=True)
 
+    # online status tracking
+    last_seen = models.DateTimeField(auto_now=True)
+
+    # player stats
     matches_played = models.PositiveIntegerField(default=0)
     wins = models.PositiveIntegerField(default=0)
     losses = models.PositiveIntegerField(default=0)
@@ -77,6 +86,10 @@ class Profile(models.Model):
 
         expiry_time = self.email_code_created_at + timedelta(minutes=10)
         return timezone.now() <= expiry_time
+
+    @property
+    def is_online(self):
+        return self.last_seen >= timezone.now() - timedelta(minutes=2)
 
     def save(self, *args, **kwargs):
         self.refresh_rank_data()

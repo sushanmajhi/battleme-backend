@@ -14,11 +14,12 @@ from .models import (
     WorldChatMessage,
     MatchMessage,
     CompetitionMessage,
+    Notification,
+
 )
 
 from .serializers import (
     CompetitionSerializer,
-    CompetitionCreateSerializer,
     CompetitionParticipantSerializer,
     MatchSerializer,
     MatchResultSubmitSerializer,
@@ -1337,3 +1338,51 @@ class ParticipantRemoveView(APIView):
         participant.delete()
 
         return Response({"message": "Player removed successfully."}, status=200)
+
+class NotificationListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        profile = getattr(request.user, "profile", None)
+
+        if not profile:
+            return Response({"detail": "Profile not found."}, status=400)
+
+        notifications = Notification.objects.filter(user=profile).order_by("-created_at")[:30]
+        serializer = NotificationSerializer(notifications, many=True)
+
+        return Response(serializer.data)
+
+
+class NotificationMarkReadView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        profile = getattr(request.user, "profile", None)
+
+        if not profile:
+            return Response({"detail": "Profile not found."}, status=400)
+
+        try:
+            notification = Notification.objects.get(pk=pk, user=profile)
+        except Notification.DoesNotExist:
+            return Response({"detail": "Notification not found."}, status=404)
+
+        notification.is_read = True
+        notification.save()
+
+        return Response({"message": "Notification marked as read."})
+
+
+class NotificationMarkAllReadView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        profile = getattr(request.user, "profile", None)
+
+        if not profile:
+            return Response({"detail": "Profile not found."}, status=400)
+
+        Notification.objects.filter(user=profile, is_read=False).update(is_read=True)
+
+        return Response({"message": "All notifications marked as read."})

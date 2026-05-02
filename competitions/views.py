@@ -3,7 +3,7 @@ from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
+from accounts.models import Profile
 from .models import (
     Competition,
     CompetitionParticipant,
@@ -1264,3 +1264,76 @@ class CompetitionMessageListCreateView(APIView):
         serializer = CompetitionMessageSerializer(msg)
 
         return Response(serializer.data, status=201)
+
+class HostAddParticipantView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, competition_id):
+        try:
+            competition = Competition.objects.get(id=competition_id)
+        except Competition.DoesNotExist:
+            return Response({"detail": "Competition not found."}, status=404)
+
+        profile = request.user.profile
+
+        if competition.host != profile and profile.role != "admin":
+            return Response({"detail": "Only the host can add players."}, status=403)
+
+        username = request.data.get("username", "").strip()
+
+        if not username:
+            return Response({"detail": "Username is required."}, status=400)
+
+        try:
+            player = Profile.objects.get(username=username)
+        except Profile.DoesNotExist:
+            return Response({"detail": "Player not found."}, status=404)
+
+        approved_count = CompetitionParticipant.objects.filter(
+            competition=competition,
+            status="approved",
+        ).count()
+
+        if approved_count >= competition.max_players:
+            return Response({"detail": "Competition is full."}, status=400)
+
+        participant, created = CompetitionParticipant.objects.get_or_create(
+            competition=competition,
+            player=player,
+            defaults={"status": "approved"},
+        )
+
+        if not created:
+            participant.status = "approved"
+            participant.save()
+
+        return Response(
+            {
+                "message": "Player added successfully.",
+                "participant": CompetitionParticipantSerializer(participant).data,
+            },
+            status=200,
+        )
+
+
+class ParticipantRemoveView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, pk):
+        try:
+            participant = CompetitionParticipant.objects.select_related(
+                "competition",
+                "competition__host",
+                "player",
+            ).get(pk=pk)
+        except CompetitionParticipant.DoesNotExist:
+            return Response({"detail": "Participant not found."}, status=404)
+
+        profile = request.user.profile
+
+        if participant.competition.host != profile and profile.role != "admin":
+            return Response({"detail": "Only the host can remove players."}, status=403)
+
+        participant.delete()
+
+        return Response({"message": "Player removed successfully."}, status=200)

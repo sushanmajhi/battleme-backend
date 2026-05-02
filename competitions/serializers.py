@@ -215,12 +215,59 @@ class ChallengeSerializer(serializers.ModelSerializer):
     challenger = ProfileSerializer(read_only=True)
     opponent = ProfileSerializer(read_only=True)
     winner = ProfileSerializer(read_only=True)
+    is_mine = serializers.SerializerMethodField()
+    can_accept = serializers.SerializerMethodField()
+    can_cancel = serializers.SerializerMethodField()
+    can_submit_result = serializers.SerializerMethodField()
 
     class Meta:
         model = Challenge
-        fields = "__all__"
+        fields = [
+            "id",
+            "challenger",
+            "opponent",
+            "game",
+            "message",
+            "scheduled_at",
+            "status",
+            "challenger_score",
+            "opponent_score",
+            "winner",
+            "is_mine",
+            "can_accept",
+            "can_cancel",
+            "can_submit_result",
+            "created_at",
+            "updated_at",
+        ]
 
+    def get_profile(self):
+        request = self.context.get("request")
+        if request and request.user and request.user.is_authenticated:
+            return getattr(request.user, "profile", None)
+        return None
 
+    def get_is_mine(self, obj):
+        profile = self.get_profile()
+        return bool(profile and obj.challenger_id == profile.id)
+
+    def get_can_accept(self, obj):
+        profile = self.get_profile()
+        if not profile:
+            return False
+        return obj.status == "open" and obj.challenger_id != profile.id
+
+    def get_can_cancel(self, obj):
+        profile = self.get_profile()
+        if not profile:
+            return False
+        return obj.status == "open" and obj.challenger_id == profile.id
+
+    def get_can_submit_result(self, obj):
+        profile = self.get_profile()
+        if not profile or not obj.opponent_id:
+            return False
+        return obj.status == "accepted" and profile.id in [obj.challenger_id, obj.opponent_id]
 # ✅ FIXED — this was missing
 class ChallengeCreateSerializer(serializers.Serializer):
     game = serializers.CharField(max_length=100, default="eFootball")
@@ -228,14 +275,14 @@ class ChallengeCreateSerializer(serializers.Serializer):
     scheduled_at = serializers.DateTimeField(required=False, allow_null=True)
 
 
-class ChallengeResultSubmitSerializer(serializers.Serializer):
-    challenger_score = serializers.IntegerField(min_value=0)
-    opponent_score = serializers.IntegerField(min_value=0)
+# class ChallengeResultSubmitSerializer(serializers.Serializer):
+#     challenger_score = serializers.IntegerField(min_value=0)
+#     opponent_score = serializers.IntegerField(min_value=0)
 
-    def validate(self, attrs):
-        if attrs["challenger_score"] == attrs["opponent_score"]:
-            raise serializers.ValidationError("No draws allowed.")
-        return attrs
+#     def validate(self, attrs):
+#         if attrs["challenger_score"] == attrs["opponent_score"]:
+#             raise serializers.ValidationError("No draws allowed.")
+#         return attrs
 
 
 # =========================

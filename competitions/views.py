@@ -943,59 +943,48 @@ class ChallengeListCreateView(generics.GenericAPIView):
 class ChallengeAcceptView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    @transaction.atomic
     def post(self, request, pk):
         profile = getattr(request.user, "profile", None)
 
         if not profile:
             return Response(
-                {"detail": "User profile not found. Please log out and sign up/login again."},
-                status=400,
+                {"detail": "Profile not found. Please log out and log in again."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
-            challenge = Challenge.objects.select_for_update().select_related(
-                "challenger",
-                "challenger__user",
-                "opponent",
-                "opponent__user",
-            ).get(pk=pk)
+            challenge = Challenge.objects.get(pk=pk)
         except Challenge.DoesNotExist:
-            return Response({"detail": "Challenge not found."}, status=404)
+            return Response(
+                {"detail": "Challenge not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         if challenge.status != "open":
             return Response(
                 {"detail": "This challenge is no longer open."},
-                status=400,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         if challenge.challenger_id == profile.id:
             return Response(
                 {"detail": "You cannot accept your own challenge."},
-                status=400,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         if challenge.opponent_id is not None:
             return Response(
                 {"detail": "This challenge has already been accepted."},
-                status=400,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         challenge.opponent = profile
         challenge.status = "accepted"
         challenge.save()
 
-        serializer = ChallengeSerializer(
-            challenge,
-            context={"request": request},
-        )
-
         return Response(
-            {
-                "message": "Challenge accepted successfully.",
-                "challenge": serializer.data,
-            },
-            status=200,
+            {"message": "Challenge accepted successfully."},
+            status=status.HTTP_200_OK,
         )
 
 class ChallengeCancelView(APIView):

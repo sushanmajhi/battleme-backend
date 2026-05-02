@@ -1,6 +1,4 @@
 from django.contrib.auth.models import User
-from django.core.mail import send_mail
-from django.conf import settings
 
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
@@ -17,22 +15,11 @@ from .serializers import (
 )
 
 
-def send_verification_email(profile):
-    code = profile.generate_email_code()
-
-    send_mail(
-        subject="Your BattleMe verification code",
-        message=f"Your BattleMe verification code is: {code}. This code expires in 10 minutes.",
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[profile.user.email],
-        fail_silently=False,
-    )
-
-
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
 
+# 🔥 SIGNUP (DEV OTP)
 class RegisterView(generics.GenericAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
@@ -43,12 +30,13 @@ class RegisterView(generics.GenericAPIView):
 
         profile = serializer.save()
 
-        email_sent = True
+        # generate OTP code
+        code = profile.generate_email_code()
 
         return Response(
             {
                 "message": "Account created successfully.",
-                "email_sent": email_sent,
+                "dev_code": code,  # 👈 show code in frontend
                 "email": profile.user.email,
                 "user": ProfileSerializer(profile).data,
             },
@@ -56,6 +44,7 @@ class RegisterView(generics.GenericAPIView):
         )
 
 
+# 🔥 VERIFY EMAIL
 class VerifyEmailView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -74,10 +63,10 @@ class VerifyEmailView(APIView):
         profile = user.profile
 
         if profile.is_email_verified:
-            return Response({"message": "Email is already verified."})
+            return Response({"message": "Email already verified."})
 
         if not profile.is_email_code_valid(code):
-            return Response({"detail": "Invalid or expired verification code."}, status=400)
+            return Response({"detail": "Invalid or expired code."}, status=400)
 
         profile.is_email_verified = True
         profile.email_verification_code = None
@@ -86,12 +75,13 @@ class VerifyEmailView(APIView):
 
         return Response(
             {
-                "message": "Email verified successfully. You can now log in.",
+                "message": "Email verified successfully.",
                 "user": ProfileSerializer(profile).data,
             }
         )
 
 
+# 🔥 RESEND CODE
 class ResendVerificationCodeView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -108,23 +98,17 @@ class ResendVerificationCodeView(APIView):
 
         profile = user.profile
 
-        if profile.is_email_verified:
-            return Response({"message": "Email is already verified."})
+        code = profile.generate_email_code()
 
-        try:
-            send_verification_email(profile)
-        except Exception as e:
-            print("EMAIL ERROR:", e)
-            return Response(
-                {
-                    "detail": "Email could not be sent.",
-                    "error": str(e),
-                },
-                status=500,
-            )
+        return Response(
+            {
+                "message": "New code generated.",
+                "dev_code": code,  # 👈 show again
+            }
+        )
 
-        return Response({"message": "New verification code sent to your email."})
 
+# OTHER VIEWS (unchanged)
 class ProfileListView(generics.ListAPIView):
     queryset = Profile.objects.select_related("user").all().order_by("-created_at")
     serializer_class = ProfileSerializer

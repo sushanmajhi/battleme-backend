@@ -251,25 +251,14 @@ class ChallengeSerializer(serializers.ModelSerializer):
         return obj.status == "accepted" and profile.id in [obj.challenger_id, obj.opponent_id]
 
 
-class ChallengeCreateSerializer(serializers.Serializer):
-    game = serializers.CharField(max_length=100, default="eFootball")
-    message = serializers.CharField(required=False, allow_blank=True)
-    scheduled_at = serializers.DateTimeField(required=False, allow_null=True)
-
-
-class ChallengeResultSubmitSerializer(serializers.Serializer):
-    challenger_score = serializers.IntegerField(min_value=0)
-    opponent_score = serializers.IntegerField(min_value=0)
-
-    def validate(self, attrs):
-        if attrs["challenger_score"] == attrs["opponent_score"]:
-            raise serializers.ValidationError("Open challenges cannot end in a draw.")
-        return attrs
-
 class CompetitionDetailSerializer(serializers.ModelSerializer):
     host = ProfileSerializer(read_only=True)
     matches = MatchSerializer(many=True, read_only=True)
     participants = CompetitionParticipantSerializer(many=True, read_only=True)
+
+    # ✅ FIX ADDED
+    participant_count = serializers.SerializerMethodField()
+    is_joined = serializers.SerializerMethodField()
 
     class Meta:
         model = Competition
@@ -288,8 +277,25 @@ class CompetitionDetailSerializer(serializers.ModelSerializer):
             "tournament_code",
             "participants",
             "matches",
+            "participant_count",   # ✅ ADDED
+            "is_joined",           # ✅ ADDED
             "created_at",
         ]
+
+    def get_participant_count(self, obj):
+        return obj.participants.filter(status="approved").count()
+
+    def get_is_joined(self, obj):
+        request = self.context.get("request")
+
+        if not request or not request.user.is_authenticated:
+            return False
+
+        return obj.participants.filter(
+            player=request.user.profile,
+            status="approved",
+        ).exists()
+
 
 class WorldChatSerializer(serializers.ModelSerializer):
     user = ProfileSerializer(read_only=True)
@@ -325,7 +331,6 @@ class MatchMessageSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["match", "sender", "created_at"]
-
 
 
 class CompetitionMessageSerializer(serializers.ModelSerializer):

@@ -111,21 +111,19 @@ class ResendVerificationCodeView(APIView):
         if profile.is_email_verified:
             return Response({"message": "Email is already verified."})
 
-        email_sent = True
-
         try:
             send_verification_email(profile)
         except Exception as e:
             print("EMAIL ERROR:", e)
-            email_sent = False
+            return Response(
+                {
+                    "detail": "Email could not be sent.",
+                    "error": str(e),
+                },
+                status=500,
+            )
 
-        return Response(
-            {
-                "message": "Verification code resend attempted.",
-                "email_sent": email_sent,
-            }
-        )
-
+        return Response({"message": "New verification code sent to your email."})
 
 class ProfileListView(generics.ListAPIView):
     queryset = Profile.objects.select_related("user").all().order_by("-created_at")

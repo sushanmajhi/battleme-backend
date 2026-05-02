@@ -945,37 +945,58 @@ class ChallengeAcceptView(APIView):
 
     @transaction.atomic
     def post(self, request, pk):
+        profile = getattr(request.user, "profile", None)
+
+        if not profile:
+            return Response(
+                {"detail": "User profile not found. Please log out and sign up/login again."},
+                status=400,
+            )
+
         try:
             challenge = Challenge.objects.select_for_update().select_related(
                 "challenger",
+                "challenger__user",
                 "opponent",
+                "opponent__user",
             ).get(pk=pk)
         except Challenge.DoesNotExist:
             return Response({"detail": "Challenge not found."}, status=404)
 
         if challenge.status != "open":
-            return Response({"detail": "This challenge is no longer open."}, status=400)
+            return Response(
+                {"detail": "This challenge is no longer open."},
+                status=400,
+            )
 
-        if challenge.challenger == request.user.profile:
-            return Response({"detail": "You cannot accept your own challenge."}, status=400)
+        if challenge.challenger_id == profile.id:
+            return Response(
+                {"detail": "You cannot accept your own challenge."},
+                status=400,
+            )
 
-        if challenge.opponent is not None:
-            return Response({"detail": "This challenge has already been accepted."}, status=400)
+        if challenge.opponent_id is not None:
+            return Response(
+                {"detail": "This challenge has already been accepted."},
+                status=400,
+            )
 
-        challenge.opponent = request.user.profile
+        challenge.opponent = profile
         challenge.status = "accepted"
         challenge.save()
+
+        serializer = ChallengeSerializer(
+            challenge,
+            context={"request": request},
+        )
 
         return Response(
             {
                 "message": "Challenge accepted successfully.",
-                "challenge": ChallengeSerializer(
-                    challenge,
-                    context={"request": request},
-                ).data,
-            }
+                "challenge": serializer.data,
+            },
+            status=200,
         )
-
 
 class ChallengeCancelView(APIView):
     permission_classes = [permissions.IsAuthenticated]

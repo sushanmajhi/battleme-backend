@@ -51,6 +51,7 @@ class Competition(models.Model):
     )
 
     rules = models.TextField(blank=True)
+    prize_pool = models.CharField(max_length=100, blank=True, default="")
     max_players = models.PositiveIntegerField(default=16)
     start_date = models.DateTimeField()
     registration_deadline = models.DateTimeField()
@@ -97,7 +98,7 @@ class CompetitionParticipant(models.Model):
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default="approved",
+        default="pending",
     )
 
     joined_at = models.DateTimeField(auto_now_add=True)
@@ -408,6 +409,7 @@ class CompetitionMessage(models.Model):
 
     def __str__(self):
         return f"{self.sender.username}: {self.competition.title}"
+
 
 class Notification(models.Model):
     TYPE_CHOICES = [

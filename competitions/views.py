@@ -35,6 +35,8 @@ from .serializers import (
     WorldChatSerializer,
     MatchMessageSerializer,
     CompetitionMessageSerializer,
+    CompetitionCreateSerializer,
+    NotificationSerializer,
 )
 
 from .permissions import IsHostUser
@@ -46,6 +48,40 @@ TOURNAMENT_WIN_BONUS_XP = 100
 JOIN_COMPETITION_XP = 5
 CHALLENGE_WIN_XP = 20
 CHALLENGE_LOSS_XP = 8
+
+
+def create_notification_safe(user_profile, title, message, notification_type="tournament"):
+    """
+    Creates a notification without crashing approval flow if your Notification
+    model uses slightly different field names.
+    Supported common fields: title, message/content/text, notification_type/type.
+    """
+    try:
+        fields = {field.name for field in Notification._meta.fields}
+        payload = {"user": user_profile}
+
+        if "title" in fields:
+            payload["title"] = title
+
+        if "message" in fields:
+            payload["message"] = message
+        elif "content" in fields:
+            payload["content"] = message
+        elif "text" in fields:
+            payload["text"] = message
+
+        if "notification_type" in fields:
+            payload["notification_type"] = notification_type
+        elif "type" in fields:
+            payload["type"] = notification_type
+
+        if "is_read" in fields:
+            payload["is_read"] = False
+
+        Notification.objects.create(**payload)
+    except Exception:
+        # Notification failure should not block tournament approval/rejection.
+        pass
 
 
 def update_profile_rank_fields(profile):
@@ -392,14 +428,19 @@ class ParticipantApprovalView(APIView):
                 "competition",
                 "competition__host",
                 "player",
+                "player__user",
             ).get(pk=pk)
         except CompetitionParticipant.DoesNotExist:
             return Response({"detail": "Participant not found."}, status=404)
 
         profile = request.user.profile
 
+        # Only the host who created this tournament, or an admin, can approve/reject.
         if participant.competition.host != profile and profile.role != "admin":
-            return Response({"detail": "You cannot approve or reject this participant."}, status=403)
+            return Response(
+                {"detail": "Only the tournament host can approve or reject this participant."},
+                status=403,
+            )
 
         action = request.data.get("action")
 
@@ -426,6 +467,13 @@ class ParticipantApprovalView(APIView):
                 update_profile_rank_fields(player)
                 player.save()
 
+            create_notification_safe(
+                participant.player,
+                "Tournament Approved",
+                f"You were approved for {participant.competition.title}.",
+                "approval",
+            )
+
             return Response(
                 {
                     "message": "Participant approved successfully.",
@@ -435,6 +483,13 @@ class ParticipantApprovalView(APIView):
 
         participant.status = "rejected"
         participant.save()
+
+        create_notification_safe(
+            participant.player,
+            "Tournament Rejected",
+            f"Your request for {participant.competition.title} was rejected.",
+            "approval",
+        )
 
         return Response(
             {
@@ -795,7 +850,7 @@ class MyJoinedCompetitionsView(APIView):
     def get(self, request):
         competitions = Competition.objects.filter(
             participants__player=request.user.profile,
-            participants__status="approved",
+            participants__status__in=["pending", "approved"],
         ).select_related(
             "host",
             "host__user",
